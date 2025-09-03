@@ -1,0 +1,301 @@
+<Gambling game>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Odds or Out - 2–4 Player Game</title>
+  <style>
+    :root{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;--card:#fff;--bg:#f4f6f8;--muted:#666}
+    body{margin:0;background:var(--bg);display:flex;align-items:flex-start;justify-content:center;padding:28px}
+    .container{width:980px;max-width:96%;}
+    h1{margin:0 0 12px;font-size:20px}
+    .card{background:var(--card);padding:16px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.07);margin-bottom:12px}
+    label{display:block;font-size:13px;margin-bottom:6px;color:var(--muted)}
+    input[type="text"],select,input[type="number"]{width:100%;padding:8px;border-radius:6px;border:1px solid #ddd}
+    .grid{display:grid;grid-template-columns:1fr 300px;gap:12px}
+    .players-list{display:flex;gap:8px;flex-wrap:wrap}
+    .player{padding:8px;border-radius:8px;border:1px solid #e6e9ee;background:#fbfdff;min-width:160px}
+    .player strong{display:block}
+    .controls{display:flex;gap:8px;align-items:center}
+    button{padding:8px 10px;border-radius:8px;border:0;background:#0b64d6;color:#fff;cursor:pointer}
+    button.secondary{background:#e6eefc;color:#05386b}
+    .muted{color:var(--muted);font-size:13px}
+    .round-area{display:flex;gap:12px;flex-direction:column}
+    .bets{display:flex;gap:8px;flex-wrap:wrap}
+    .bet-box{border:1px dashed #d9dfea;padding:8px;border-radius:8px;min-width:140px}
+    .log{max-height:220px;overflow:auto;padding:8px;border-radius:6px;background:#11111105;font-size:13px}
+    .center{text-align:center}
+    .danger{background:#ffefef;color:#a30000}
+    footer{font-size:12px;color:var(--muted);margin-top:6px}
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <h1>Odds or Out — 2 to 4 players</h1>
+    <div class="muted">No real money. Chips only. Objective: be last with chips or have most after fixed rounds.</div>
+  </div>
+
+  <div class="card grid">
+    <div>
+      <label>Number of players</label>
+      <select id="playerCount">
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4" selected>4</option>
+      </select>
+
+      <div style="margin-top:10px">
+        <label>Player names (leave blank for defaults)</label>
+        <div id="namesInputs"></div>
+      </div>
+
+      <div style="margin-top:10px" class="controls">
+        <button id="setupBtn">Setup Game</button>
+        <button id="resetBtn" class="secondary">Reset</button>
+      </div>
+
+      <hr />
+
+      <div class="round-area">
+        <div id="gameArea" style="display:none">
+          <div class="muted">Active predictor rotates each round. Predictor sets a target number N (1–5). Statement: "Roll will be higher than N". Others stake chips for True or False.</div>
+
+          <div style="margin-top:10px">
+            <div class="controls">
+              <div style="flex:1">
+                <label>Predictor target (N: 1–5)</label>
+                <input id="targetInput" type="number" min="1" max="5" value="3" />
+              </div>
+
+              <div>
+                <label>&nbsp;</label>
+                <button id="startRoundBtn">Start Round</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="betsArea" style="margin-top:12px;display:none">
+            <div class="muted">Place stakes for True (predictor correct) or False (predictor wrong).</div>
+            <div id="betsBoxes" class="bets" style="margin-top:8px"></div>
+            <div style="margin-top:8px" class="controls">
+              <button id="revealBtn">Reveal Roll</button>
+              <button id="clearBetsBtn" class="secondary">Clear Bets</button>
+            </div>
+          </div>
+
+          <div style="margin-top:12px">
+            <div class="player-list card" id="playersCard"></div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <div>
+      <div class="card">
+        <h2 class="center">Game Log</h2>
+        <div id="log" class="log"></div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <h3 class="center">Status</h3>
+        <div id="status" class="muted center">No game running</div>
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center">
+          <button id="endGameBtn" class="danger">End Game</button>
+        </div>
+      </div>
+
+      <footer class="card center muted">Rules: Predictor sets N. Die roll 1–6. If roll > N predictor is correct. Winners double their stake. Losers lose stake. Predictor does not stake.</footer>
+    </div>
+  </div>
+</div>
+
+<script>
+// Minimal single-file logic. Keeps state in-memory.
+let players = [];
+let activePredictor = 0;
+let roundActive = false;
+const defaultChips = 10;
+const maxRounds = 50;
+let roundNumber = 0;
+
+const $ = id => document.getElementById(id);
+
+function makeNamesInputs(count){
+  const container = $('namesInputs');
+  container.innerHTML = '';
+  for(let i=0;i<count;i++){
+    const input = document.createElement('input');
+    input.type='text';
+    input.placeholder = 'Player '+(i+1)+' name';
+    input.dataset.index = i;
+    input.style.marginBottom='6px';
+    container.appendChild(input);
+  }
+}
+
+function log(text){
+  const el = $('log');
+  const time = new Date().toLocaleTimeString();
+  el.innerHTML = `<div>[${time}] ${text}</div>`+el.innerHTML;
+}
+
+function renderPlayers(){
+  const container = $('playersCard');
+  container.innerHTML = '';
+  players.forEach((p, idx)=>{
+    const div = document.createElement('div');
+    div.className='player';
+    div.innerHTML = `<strong>${p.name}${idx===activePredictor? ' (Predictor)':''}</strong>
+      <div>Chips: <strong>${p.chips}</strong></div>
+      <div class="muted">Rounds in play: ${roundNumber}</div>`;
+    container.appendChild(div);
+  });
+}
+
+function setupGame(){
+  const count = parseInt($('playerCount').value,10);
+  players = [];
+  const nameInputs = document.querySelectorAll('#namesInputs input');
+  for(let i=0;i<count;i++){
+    let name = nameInputs[i] && nameInputs[i].value.trim();
+    if(!name) name = 'Player '+(i+1);
+    players.push({name, chips: defaultChips, bet:null});
+  }
+  activePredictor = 0;
+  roundActive = false;
+  roundNumber = 0;
+  $('gameArea').style.display='block';
+  $('betsArea').style.display='none';
+  $('status').textContent = 'Game ready. Click Start Round.';
+  $('log').innerHTML = '';
+  renderPlayers();
+  log('Game set up with '+players.length+' players. Each starts with '+defaultChips+' chips.');
+}
+
+function startRound(){
+  if(roundNumber >= maxRounds) { $('status').textContent='Max rounds reached'; return }
+  // skip players with zero chips as predictor
+  let safe = 0;
+  while(players[activePredictor].chips<=0 && safe<players.length){ activePredictor=(activePredictor+1)%players.length; safe++; }
+  roundNumber++;
+  roundActive = true;
+  // reset bets
+  players.forEach(p=>p.bet=null);
+  const target = parseInt($('targetInput').value,10);
+  $('status').textContent = `Round ${roundNumber}: ${players[activePredictor].name} predicts "Roll > ${target}"`;
+  log(`${players[activePredictor].name} sets target ${target}. Others place bets.`);
+  renderPlayers();
+  renderBetsBoxes();
+  $('betsArea').style.display='block';
+}
+
+function renderBetsBoxes(){
+  const box = $('betsBoxes');
+  box.innerHTML = '';
+  players.forEach((p, idx)=>{
+    if(idx===activePredictor){
+      const el = document.createElement('div'); el.className='bet-box'; el.innerHTML = `<div><strong>${p.name}</strong> (Predictor)</div><div class="muted">Predictor does not stake this round.</div>`;
+      box.appendChild(el);
+      return;
+    }
+    const el = document.createElement('div'); el.className='bet-box';
+    el.innerHTML = `<div><strong>${p.name}</strong></div>
+      <div class="muted">Chips: ${p.chips}</div>
+      <div style="margin-top:6px">Choice: 
+        <select data-idx="${idx}" class="choiceSel">
+          <option value="true">True (predictor correct)</option>
+          <option value="false">False (predictor wrong)</option>
+        </select>
+      </div>
+      <div style="margin-top:6px">Stake: <input min="0" step="1" data-idx="${idx}" class="stakeInput" type="number" value="0" style="width:80px" /></div>`;
+    box.appendChild(el);
+  });
+}
+
+function collectBets(){
+  const choices = document.querySelectorAll('.choiceSel');
+  const stakes = document.querySelectorAll('.stakeInput');
+  let ok = true;
+  choices.forEach(sel=>{
+    const idx = parseInt(sel.dataset.idx,10);
+    const stakeInput = document.querySelector(`.stakeInput[data-idx='${idx}']`);
+    const stake = Math.floor(Number(stakeInput.value)||0);
+    if(stake>players[idx].chips){ ok=false; }
+    players[idx].bet = {choice: sel.value==='true', stake};
+  });
+  return ok;
+}
+
+function revealRoll(){
+  if(!roundActive){ $('status').textContent='No active round.'; return }
+  if(!collectBets()){ alert('One or more players staked more chips than they have. Adjust stakes.'); return }
+  const target = parseInt($('targetInput').value,10);
+  const roll = Math.floor(Math.random()*6)+1;
+  const predictorCorrect = roll > target;
+  log(`Die rolled ${roll}. Predictor ${predictorCorrect? 'correct':'wrong'}.`);
+
+  // resolve bets
+  players.forEach((p, idx)=>{
+    if(idx===activePredictor) return;
+    const b = p.bet || {choice:false, stake:0};
+    if(b.stake<=0) return;
+    if(b.choice === predictorCorrect){
+      const gain = b.stake; // double stake payout = get stake back + gain
+      p.chips += gain;
+      log(`${p.name} won ${gain} chips.`);
+    } else {
+      p.chips -= b.stake;
+      log(`${p.name} lost ${b.stake} chips.`);
+    }
+  });
+
+  // advance predictor
+  activePredictor = (activePredictor+1) % players.length;
+  roundActive = false;
+  renderPlayers();
+  $('betsArea').style.display='none';
+  $('status').textContent = `Round ${roundNumber} complete. Roll: ${roll}.`;
+  checkElimination();
+}
+
+function checkElimination(){
+  const alive = players.filter(p=>p.chips>0);
+  if(alive.length<=1){
+    log('Game over. '+(alive[0]? alive[0].name+' wins.':'No winners.'));
+    $('status').textContent = 'Game over.';
+    roundActive=false;
+    $('betsArea').style.display='none';
+  }
+}
+
+function clearBets(){
+  players.forEach(p=>p.bet=null);
+  renderBetsBoxes();
+}
+
+function resetAll(){
+  players = [];
+  $('gameArea').style.display='none';
+  $('betsArea').style.display='none';
+  $('status').textContent='No game running';
+  $('log').innerHTML='';
+}
+
+// UI hooks
+$('playerCount').addEventListener('change', e=> makeNamesInputs(parseInt(e.target.value,10)) );
+$('setupBtn').addEventListener('click', setupGame);
+$('resetBtn').addEventListener('click', resetAll);
+$('startRoundBtn').addEventListener('click', startRound);
+$('revealBtn').addEventListener('click', revealRoll);
+$('clearBetsBtn').addEventListener('click', clearBets);
+$('endGameBtn').addEventListener('click', ()=>{ log('Game ended by user.'); resetAll(); });
+
+// init
+makeNamesInputs(4);
+
+</script>
+</body>
+</html>
